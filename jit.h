@@ -135,11 +135,17 @@ enum JIT_BOP {
 
 typedef struct trace_side_exit_handler trace_side_exit_handler_t;
 
+typedef enum trace_exit_staus {
+    TRACE_EXIT_ERROR = -1,
+    TRACE_EXIT_SUCCESS = 0,
+    TRACE_EXIT_SIDE_EXIT
+} trace_exit_status_t;
+
 struct trace_side_exit_handler {
     struct jit_trace *this_trace;
     struct jit_trace *child_trace;
     VALUE *exit_pc;
-    long exit_status;
+    trace_exit_status_t exit_status;
 };
 
 #ifdef JIT_HOST
