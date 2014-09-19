@@ -142,6 +142,7 @@ typedef struct const_pool {
 typedef struct regstack {
     jit_list_t list;
     unsigned refc;
+    trace_exit_status_t flag;
 } regstack_t;
 
 typedef struct call_stack {
@@ -294,6 +295,7 @@ static jit_event_t *jit_event_init(jit_event_t *e, rb_jit_t *jit, rb_thread_t *t
 }
 
 static lir_t trace_recorder_insert_stackpop(trace_recorder_t *rec);
+static void mark_trace_header(trace_side_exit_handler_t *handler, rb_thread_t *th);
 static void dump_trace(trace_recorder_t *rec);
 static void stop_recording(rb_jit_t *jit);
 static call_stack_t *call_stack_new(struct memory_pool *mp);
@@ -730,6 +732,7 @@ static regstack_t *regstack_init(regstack_t *stack)
 	jit_list_add(&stack->list, 0);
     }
     RC_INIT(stack);
+    stack->flag = TRACE_EXIT_SIDE_EXIT;
     return stack;
 }
 
@@ -1039,15 +1042,18 @@ static void trace_recorder_disable_cache(trace_recorder_t *recorder)
     recorder->cache_pool.size = recorder->cache_max;
 }
 
-static void trace_recorder_take_snapshot(trace_recorder_t *recorder, VALUE *pc)
+static void trace_recorder_take_snapshot(trace_recorder_t *rec, VALUE *pc, int force_exit)
 {
     regstack_t *stack;
-    if ((stack = (regstack_t *)hashmap_get(&recorder->stack_map, (hashmap_data_t)pc))) {
+    if ((stack = (regstack_t *)hashmap_get(&rec->stack_map, (hashmap_data_t)pc))) {
 	fprintf(stderr, "rewrite snapshot\n");
 	regstack_delete(stack);
     }
-    stack = regstack_clone(&recorder->mpool, &recorder->regstack);
-    hashmap_set(&recorder->stack_map, (hashmap_data_t)pc, (hashmap_data_t)stack);
+    stack = regstack_clone(&rec->mpool, &rec->regstack);
+    if (force_exit) {
+	stack->flag = TRACE_EXIT_SUCCESS;
+    }
+    hashmap_set(&rec->stack_map, (hashmap_data_t)pc, (hashmap_data_t)stack);
 }
 
 static basicblock_t *trace_recorder_get_block(trace_recorder_t *rec, VALUE *pc)
@@ -1176,7 +1182,7 @@ static void trace_recorder_abort(trace_recorder_t *rec, jit_event_t *e, enum tra
 	        RSTRING_PTR(file),
 	        rb_iseq_line_no(iseq, e->pc - iseq->iseq_encoded),
 	        trace_error_message[reason]);
-	trace_recorder_take_snapshot(rec, e->pc);
+	trace_recorder_take_snapshot(rec, e->pc, 1);
 	Emit_Exit(rec, e->pc);
 	if (reason != TRACE_ERROR_REGSTACK_UNDERFLOW) {
 	    compile_trace(jit, rec);
@@ -1218,39 +1224,35 @@ static VALUE *trace_invoke(rb_jit_t *jit, jit_event_t *e, trace_t *trace)
     trace_side_exit_handler_t *handler;
     rb_control_frame_t *cfp = e->cfp;
     rb_thread_t *th = e->th;
-    //JIT_PROFILE_ENTER("invoke trace");
     JIT_PROFILE_COUNT(invoke_trace_invoke_enter);
-    //_head:
+L_head:
     JIT_PROFILE_COUNT(invoke_trace_invoke);
     handler = trace->code(th, cfp);
     if (JIT_LOG_SIDE_EXIT > 0) {
 	fprintf(stderr, "trace for %p is exit from %p\n", e->pc, handler->exit_pc);
     }
-#if 0
     switch (handler->exit_status) {
-    case TRACE_EXIT_SIDE_EXIT:
-	JIT_PROFILE_COUNT(invoke_trace_side_exit);
-	if (handler->child_trace) {
-	    JIT_PROFILE_COUNT(invoke_trace_child1);
-	    trace = handler->child_trace;
-	    goto L_head;
-	}
-	trace_exit(handler, th, th->cfp);
-	if (handler->child_trace) {
-	    JIT_PROFILE_COUNT(invoke_trace_child2);
-	    trace = handler->child_trace;
-	    goto L_head;
-	}
-	break;
-    case TRACE_EXIT_SUCCESS:
-	JIT_PROFILE_COUNT(invoke_trace_success);
-	break;
-    case TRACE_EXIT_ERROR:
-	assert(0 && "unreachable");
-	break;
+	case TRACE_EXIT_SIDE_EXIT:
+	    JIT_PROFILE_COUNT(invoke_trace_side_exit);
+	    if (handler->child_trace) {
+		JIT_PROFILE_COUNT(invoke_trace_child1);
+		trace = handler->child_trace;
+		goto L_head;
+	    }
+	    mark_trace_header(handler, th);
+	    if (handler->child_trace) {
+		JIT_PROFILE_COUNT(invoke_trace_child2);
+		trace = handler->child_trace;
+		goto L_head;
+	    }
+	    break;
+	case TRACE_EXIT_SUCCESS:
+	    JIT_PROFILE_COUNT(invoke_trace_success);
+	    break;
+	case TRACE_EXIT_ERROR:
+	    assert(0 && "unreachable");
+	    break;
     }
-#endif
-    //JIT_PROFILE_LEAVE("invoke trace", 0);
     return handler->exit_pc;
 }
 
@@ -1483,7 +1485,7 @@ void Destruct_rawjit()
 
 static int is_recording(rb_jit_t *jit)
 {
-    return (jit->mode &= TraceModeRecording) == TraceModeRecording;
+    return (jit->mode & TraceModeRecording) == TraceModeRecording;
 }
 
 static void set_recording(rb_jit_t *jit, trace_t *trace)
@@ -1520,6 +1522,24 @@ static trace_t *find_trace(rb_jit_t *jit, jit_event_t *e)
     return (trace_t *)hashmap_get(&jit->traces, (hashmap_data_t)e->pc);
 }
 
+static void mark_trace_header(trace_side_exit_handler_t *handler, rb_thread_t *th)
+{
+    rb_control_frame_t *reg_cfp = th->cfp;
+    rb_jit_t *jit = current_jit;
+    trace_t *trace;
+    jit_event_t ebuf, *e;
+    e = jit_event_init(&ebuf, jit, th, reg_cfp, handler->exit_pc, -1);
+    if ((trace = find_trace(jit, e)) == NULL) {
+	trace = create_new_trace(jit, e, handler);
+	trace_reset(trace);
+	trace_recorder_clear(jit->recorder, trace, 1);
+	set_recording(jit, trace);
+    }
+    if (trace_is_compiled(trace)) {
+	handler->child_trace = trace;
+    }
+}
+
 static int is_backward_branch(jit_event_t *e, VALUE **target_pc_ptr)
 {
     OFFSET dst;
@@ -1539,17 +1559,19 @@ static int already_recorded_on_trace(jit_event_t *e)
     if (parent) {
 	if (parent->this_trace->start_pc == e->pc) {
 	    // linked to other trace
-	    // TODO emit exit
+	    trace_recorder_take_snapshot(jit->recorder, REG_PC, 0);
+	    Emit_Exit(jit->recorder, e->pc);
 	    return 1;
 	}
     }
     else if (e->trace->start_pc == e->pc) {
-	// TODO formed loop.
+	record_insn(jit->recorder, e);
 	return 1;
     }
     else if ((trace = find_trace(jit, e)) != NULL && trace_is_compiled(trace)) {
 	// linked to other trace
-	// TODO emit exit
+	trace_recorder_take_snapshot(jit->recorder, REG_PC, 1);
+	Emit_Exit(jit->recorder, e->pc);
 	return 1;
     }
     return 0;
@@ -1587,7 +1609,6 @@ static int is_tracable_call_inst(jit_event_t *e)
 	return 1;
     }
 
-    asm volatile("int3");
     if (is_tracable_special_inst(e->opcode, ci)) {
 	return 1;
     }
@@ -1602,27 +1623,26 @@ static int is_irregular_event(jit_event_t *e)
 static int is_end_of_trace(trace_recorder_t *recorder, jit_event_t *e)
 {
     if (already_recorded_on_trace(e)) {
-	record_insn(recorder, e);
 	e->reason = TRACE_ERROR_ALREADY_RECORDED;
 	return 1;
     }
     if (trace_recorder_is_full(recorder)) {
 	e->reason = TRACE_ERROR_BUFFER_FULL;
-	trace_recorder_take_snapshot(recorder, REG_PC);
+	trace_recorder_take_snapshot(recorder, REG_PC, 1);
 	Emit_Exit(recorder, e->pc);
 	// TODO emit exit
 	return 1;
     }
     if (!is_tracable_call_inst(e)) {
 	e->reason = TRACE_ERROR_NATIVE_METHOD;
-	trace_recorder_take_snapshot(recorder, REG_PC);
+	trace_recorder_take_snapshot(recorder, REG_PC, 1);
 	Emit_Exit(recorder, e->pc);
 	// TODO emit exit
 	return 1;
     }
     if (is_irregular_event(e)) {
 	e->reason = TRACE_ERROR_THROW;
-	trace_recorder_take_snapshot(recorder, REG_PC);
+	trace_recorder_take_snapshot(recorder, REG_PC, 1);
 	Emit_Exit(recorder, e->pc);
 	// TODO emit exit
 	return 1;

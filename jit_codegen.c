@@ -1162,6 +1162,19 @@ static void compile_inst(trace_recorder_t *Rec, CGen *gen, hashmap_t *SideExitBB
     }
 }
 
+static const char *trace_status_to_str(trace_exit_status_t reason)
+{
+    switch (reason) {
+	case TRACE_EXIT_ERROR:
+	    return "TRACE_EXIT_ERROR";
+	case TRACE_EXIT_SUCCESS:
+	    return "TRACE_EXIT_SUCCESS";
+	case TRACE_EXIT_SIDE_EXIT:
+	    return "TRACE_EXIT_SIDE_EXIT";
+    }
+    return "-1";
+}
+
 static void prepare_side_exit(trace_recorder_t *rec, CGen *gen, hashmap_t *SideExitBBs)
 {
     long j = 1;
@@ -1169,14 +1182,16 @@ static void prepare_side_exit(trace_recorder_t *rec, CGen *gen, hashmap_t *SideE
     hashmap_init(SideExitBBs, hashmap_size(&rec->stack_map));
     while (hashmap_next(&rec->stack_map, &itr)) {
 	VALUE *pc = (VALUE *)itr.entry->key;
+	regstack_t *stack = (regstack_t *)itr.entry->val;
 	hashmap_set(SideExitBBs, (hashmap_data_t)pc, (j << 1));
 	cgen_printf(gen,
 	            "static trace_side_exit_handler_t side_exit_handler_%ld = {\n"
 	            " .exit_pc = (VALUE *) %p,\n"
 	            " .this_trace = 0,\n"
-	            " .child_trace = 0\n"
+	            " .child_trace = 0,\n"
+	            " .exit_status = %s\n"
 	            "};\n",
-	            j, pc);
+	            j, pc, trace_status_to_str(stack->flag));
 	j++;
     }
 }

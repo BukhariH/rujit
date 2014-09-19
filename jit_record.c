@@ -183,7 +183,7 @@ static void EmitSpecialInst1(trace_recorder_t *rec, jit_event_t *e)
     CALL_INFO ci = (CALL_INFO)GET_OPERAND(1);
     lir_t regs[ci->argc + 1];
     VALUE params[ci->argc + 1];
-    trace_recorder_take_snapshot(rec, REG_PC);
+    trace_recorder_take_snapshot(rec, REG_PC, 0);
     PrepareInstructionArgument(rec, e, ci->argc, params, regs);
     EmitSpecialInst0(rec, e, ci, e->opcode, params, regs);
 }
@@ -280,7 +280,7 @@ static void EmitMethodCall(trace_recorder_t *rec, jit_event_t *e, CALL_INFO ci, 
     for (i = 0; i < ci->argc + 1; i++) {
 	_PUSH(regs[i]);
     }
-    trace_recorder_take_snapshot(rec, REG_PC);
+    trace_recorder_take_snapshot(rec, REG_PC, 1);
     trace_recorder_abort(rec, e, TRACE_ERROR_NATIVE_METHOD);
 }
 
@@ -366,7 +366,7 @@ static void record_getinstancevariable(trace_recorder_t *rec, jit_event_t *e)
     lir_t Rrecv = EmitIR(LoadSelf);
 
     if (vm_load_cache(obj, id, ic, NULL, 0)) {
-	trace_recorder_take_snapshot(rec, REG_PC);
+	trace_recorder_take_snapshot(rec, REG_PC, 0);
 	EmitIR(GuardTypeObject, REG_PC, Rrecv);
 	EmitIR(GuardProperty, REG_PC, Rrecv, 0 /*!is_attr*/, (void *)ic);
 	_PUSH(EmitIR(GetPropertyName, Rrecv, ic->ic_value.index));
@@ -384,7 +384,7 @@ static void record_setinstancevariable(trace_recorder_t *rec, jit_event_t *e)
 
     int cacheable = vm_load_cache(obj, id, ic, NULL, 0);
     if (cacheable) {
-	trace_recorder_take_snapshot(rec, REG_PC);
+	trace_recorder_take_snapshot(rec, REG_PC, 0);
 	EmitIR(GuardTypeObject, REG_PC, Rrecv);
 	EmitIR(GuardProperty, REG_PC, Rrecv, 0 /*!is_attr*/, (void *)ic);
 	EmitIR(SetPropertyName, Rrecv, ic->ic_value.index, _POP());
@@ -717,7 +717,7 @@ static void record_send(trace_recorder_t *rec, jit_event_t *e)
 	return;
     }
 
-    trace_recorder_take_snapshot(rec, REG_PC);
+    trace_recorder_take_snapshot(rec, REG_PC, 0);
     EmitMethodCall(rec, e, ci, block, Rblock);
 }
 
@@ -730,14 +730,14 @@ static void record_opt_str_freeze(trace_recorder_t *rec, jit_event_t *e)
 static void record_opt_send_simple(trace_recorder_t *rec, jit_event_t *e)
 {
     CALL_INFO ci = (CALL_INFO)GET_OPERAND(1);
-    trace_recorder_take_snapshot(rec, REG_PC);
+    trace_recorder_take_snapshot(rec, REG_PC, 0);
     EmitMethodCall(rec, e, ci, 0, 0);
 }
 
 static void record_invokesuper(trace_recorder_t *rec, jit_event_t *e)
 {
     //CALL_INFO ci = (CALL_INFO)GET_OPERAND(1);
-    trace_recorder_take_snapshot(rec, REG_PC);
+    trace_recorder_take_snapshot(rec, REG_PC, 0);
     //ci->argc = ci->orig_argc;
     //ci->blockptr = !(ci->flag & VM_CALL_ARGS_BLOCKARG) ? GET_BLOCK_PTR() : 0;
 
@@ -762,7 +762,7 @@ static void record_invokeblock(trace_recorder_t *rec, jit_event_t *e)
     VALUE type;
     variable_table_t *newtable = variable_table_init(&rec->mpool, NULL);
 
-    trace_recorder_take_snapshot(rec, REG_PC);
+    trace_recorder_take_snapshot(rec, REG_PC, 0);
 
     block = rb_vm_control_frame_block_ptr(REG_CFP);
     regs[0] = EmitIR(LoadSelf);
@@ -858,12 +858,12 @@ static void record_branchif(trace_recorder_t *rec, jit_event_t *e)
     VALUE *jump_pc = next_pc + dst;
 
     if (RTEST(val)) {
-	trace_recorder_take_snapshot(rec, next_pc);
+	trace_recorder_take_snapshot(rec, next_pc, 0);
 	EmitIR(GuardTypeNil, next_pc, Rval);
 	EmitJump(rec, jump_pc, 1);
     }
     else {
-	trace_recorder_take_snapshot(rec, jump_pc);
+	trace_recorder_take_snapshot(rec, jump_pc, 0);
 	EmitIR(GuardTypeNil, jump_pc, Rval);
 	EmitJump(rec, next_pc, 1);
     }
@@ -879,12 +879,12 @@ static void record_branchunless(trace_recorder_t *rec, jit_event_t *e)
     VALUE *target_pc = NULL;
 
     if (!RTEST(val)) {
-	trace_recorder_take_snapshot(rec, next_pc);
+	trace_recorder_take_snapshot(rec, next_pc, 0);
 	EmitIR(GuardTypeNonNil, next_pc, Rval);
 	target_pc = jump_pc;
     }
     else {
-	trace_recorder_take_snapshot(rec, jump_pc);
+	trace_recorder_take_snapshot(rec, jump_pc, 0);
 	EmitIR(GuardTypeNil, jump_pc, Rval);
 	target_pc = next_pc;
     }
@@ -932,7 +932,7 @@ static void record_opt_case_dispatch(trace_recorder_t *rec, jit_event_t *e)
     int type;
     st_data_t val;
 
-    trace_recorder_take_snapshot(rec, REG_PC);
+    trace_recorder_take_snapshot(rec, REG_PC, 0);
     type = TYPE(key);
     switch (type) {
 	case T_FLOAT: {
@@ -1062,7 +1062,7 @@ static void record_opt_aset_with(trace_recorder_t *rec, jit_event_t *e)
     VALUE params[3];
     lir_t regs[3];
 
-    trace_recorder_take_snapshot(rec, REG_PC);
+    trace_recorder_take_snapshot(rec, REG_PC, 0);
     ci = (CALL_INFO)GET_OPERAND(1);
     key = (VALUE)GET_OPERAND(2);
     recv = TOPN(1);
@@ -1087,7 +1087,7 @@ static void record_opt_aref_with(trace_recorder_t *rec, jit_event_t *e)
     CALL_INFO ci;
     VALUE params[2];
     lir_t regs[2];
-    trace_recorder_take_snapshot(rec, REG_PC);
+    trace_recorder_take_snapshot(rec, REG_PC, 0);
     ci = (CALL_INFO)GET_OPERAND(1);
     key = (VALUE)GET_OPERAND(2);
     recv = TOPN(0);
@@ -1134,7 +1134,7 @@ static void record_opt_regexpmatch1(trace_recorder_t *rec, jit_event_t *e)
     lir_t RRe, Robj;
     rb_call_info_t ci;
 
-    trace_recorder_take_snapshot(rec, REG_PC);
+    trace_recorder_take_snapshot(rec, REG_PC, 0);
     obj = TOPN(0);
     r = GET_OPERAND(1);
     RRe = EmitLoadConst(rec, r);
@@ -1158,7 +1158,7 @@ static void record_opt_regexpmatch2(trace_recorder_t *rec, jit_event_t *e)
     lir_t Robj1, Robj2;
     rb_call_info_t ci;
 
-    trace_recorder_take_snapshot(rec, REG_PC);
+    trace_recorder_take_snapshot(rec, REG_PC, 0);
     obj2 = TOPN(1);
     obj1 = TOPN(0);
     Robj1 = _POP();
