@@ -799,7 +799,7 @@ static void record_invokeblock(trace_recorder_t *rec, jit_event_t *e)
     }
 
     EmitIR(GuardBlockEqual, REG_PC, Rblock, (VALUE)block);
-    for (i = 0; i < argc; i++) {
+    for (i = 1; i < argc; i++) {
 	_PUSH(regs[i]);
     }
 
@@ -856,14 +856,14 @@ static void record_branchif(trace_recorder_t *rec, jit_event_t *e)
     VALUE val = TOPN(0);
     VALUE *next_pc = e->pc + insn_len(BIN(branchif));
     VALUE *jump_pc = next_pc + dst;
-
+    int force_exit = jump_pc == rec->trace->last_pc;
+    trace_recorder_take_snapshot(rec, next_pc, force_exit);
+    fprintf(stderr, "record: %s:%d, sp=%p [1]=%p, [0]=%p, [-1]=%p, [-2]=%p\n", __FILE__, __LINE__, GET_SP(), (void *)GET_SP()[1], (void *)GET_SP()[0], (void *)GET_SP()[-1], (void *)GET_SP()[-2]);
     if (RTEST(val)) {
-	trace_recorder_take_snapshot(rec, next_pc, 0);
 	EmitIR(GuardTypeNil, next_pc, Rval);
 	EmitJump(rec, jump_pc, 1);
     }
     else {
-	trace_recorder_take_snapshot(rec, jump_pc, 0);
 	EmitIR(GuardTypeNil, jump_pc, Rval);
 	EmitJump(rec, next_pc, 1);
     }

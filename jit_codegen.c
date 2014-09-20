@@ -200,8 +200,10 @@ static void EmitFramePush(trace_recorder_t *rec, CGen *gen, IFramePush *ir, int 
     int i, begin = ir->invokeblock ? 1 : 0;
     cgen_printf(gen, "{\n"
                      "  CALL_INFO ci = (CALL_INFO) %p;\n"
-                     "  SET_PC((VALUE *) %p);\n",
-                ir->ci, ir->PC);
+                     "  SET_PC((VALUE *) %p + %d);\n",
+                ir->ci, ir->PC, insn_len(BIN(opt_send_simple)));
+
+    assert(insn_len(BIN(opt_send_simple)) == insn_len(BIN(send)) && insn_len(BIN(opt_send_simple)) == insn_len(BIN(invokeblock)));
     if (!side_exit) {
 	for (i = begin; i < ir->argc; i++) {
 	    cgen_printf(gen, "(GET_SP())[%d] = v%ld;\n",
@@ -1259,7 +1261,9 @@ static void compile_sideexit(trace_recorder_t *rec, trace_t *trace, CGen *gen, h
 	long block_id = itr.entry->val >> 1;
 	regstack_t *stack = (regstack_t *)hashmap_get(&rec->stack_map, (hashmap_data_t)pc);
 	cgen_printf(gen, "L_exit%ld:;\n", block_id);
-	//cgen_printf(gen, "__int3__;fprintf(stderr,\"exit%ld : pc=%p\\n\");\n", block_id, pc);
+	if (JIT_DEBUG_VERBOSE > 1) {
+	    cgen_printf(gen, "fprintf(stderr,\"exit%ld : pc=%p\\n\");\n", block_id, pc);
+	}
 
 	j = 0;
 	cgen_printf(gen, "th->cfp = reg_cfp = original_cfp;\n");
@@ -1338,7 +1342,7 @@ static void trace_compile(trace_recorder_t *rec, trace_t *trace)
 
     compile2c(rec, &gen, trace, id);
     if (cgen_freeze(&gen, id) != 0) {
-	//trace->Code = (void *) 0xdeadbeaf;
+	trace->code = trace->handler = NULL;
     }
     else {
 	trace_recorder_freeze_cache(rec);

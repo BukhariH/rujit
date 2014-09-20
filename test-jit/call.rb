@@ -17,7 +17,7 @@ class C < Z
     end
 end
 
-a = [A.new, B.new, C.new]
+a = [A.new, B.new, C.new, A.new, B.new, C.new]
 
 def f a
     i = 0

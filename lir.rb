@@ -122,9 +122,9 @@ def emit_ir(ir)
 end
 
 def dump_ir(ir)
-  puts "#if DUMP_LIR > 0"
   print "static void Dump_#{ir.name}(lir_inst_t *Inst)\n"
   puts "{\n"
+  puts "#if DUMP_LIR > 0"
   puts "  I#{ir.name} *ir = (I#{ir.name} *)Inst;\n"
 
   ir.arg.each{|e|
@@ -154,8 +154,8 @@ def dump_ir(ir)
   }
 
   puts "  fprintf(stderr, \"\\n\");"
-  puts "}\n"
   puts "#endif /*DUMP_LIR > 0*/"
+  puts "}\n"
 end
 
 def emit_specialinst(ir)
