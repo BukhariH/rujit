@@ -165,5 +165,7 @@ FramePop  :effect ()
 # Phi :def :use ()
 
 # trace
-Trace :use :effect (flag:rb_event_flag_t)
+## FIXME: in current implementation, Trace IR does not have :effect annotation
+## to simplify JIT's implementation.
+Trace :use (flag:rb_event_flag_t)
 
