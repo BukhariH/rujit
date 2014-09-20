@@ -7,5 +7,4 @@ def fib
     a
 end
 
-#puts
-fib
+puts fib
