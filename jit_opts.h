@@ -28,6 +28,7 @@
 #define LIR_TRACE_INIT_SIZE 16 /* initial size of trace */
 #define LIR_RESERVED_REGSTACK_SIZE 8
 
+#define JIT_DEBUG_VERBOSE 1 /* 0:disable, 1: emit log */
 #define JIT_LOG_SIDE_EXIT 0 /* 0:disable, 1: emit log if side exit occured */
 
 /* Initial buffer size of lir memory allocator */
@@ -38,5 +39,5 @@
 
 #define JIT_USE_BLOOM_FILTER 1
 
-#define ENABLE_PROFILE_TRACE_JIT
+// #define ENABLE_PROFILE_TRACE_JIT
 #endif /* end of include guard */

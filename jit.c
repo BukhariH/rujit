@@ -1226,9 +1226,13 @@ static VALUE *trace_invoke(rb_jit_t *jit, jit_event_t *e, trace_t *trace)
     rb_thread_t *th = e->th;
     JIT_PROFILE_COUNT(invoke_trace_invoke_enter);
 L_head:
+    if (JIT_DEBUG_VERBOSE > 0) {
+	fprintf(stderr, "invoke compiled trace: %p (start:%p, last:%p)\n", trace, trace->start_pc, trace->last_pc);
+    }
+
     JIT_PROFILE_COUNT(invoke_trace_invoke);
     handler = trace->code(th, cfp);
-    if (JIT_LOG_SIDE_EXIT > 0) {
+    if (JIT_DEBUG_VERBOSE > 0 || JIT_LOG_SIDE_EXIT > 0) {
 	fprintf(stderr, "trace for %p is exit from %p\n", e->pc, handler->exit_pc);
     }
     switch (handler->exit_status) {
@@ -1630,21 +1634,18 @@ static int is_end_of_trace(trace_recorder_t *recorder, jit_event_t *e)
 	e->reason = TRACE_ERROR_BUFFER_FULL;
 	trace_recorder_take_snapshot(recorder, REG_PC, 1);
 	Emit_Exit(recorder, e->pc);
-	// TODO emit exit
 	return 1;
     }
     if (!is_tracable_call_inst(e)) {
 	e->reason = TRACE_ERROR_NATIVE_METHOD;
 	trace_recorder_take_snapshot(recorder, REG_PC, 1);
 	Emit_Exit(recorder, e->pc);
-	// TODO emit exit
 	return 1;
     }
     if (is_irregular_event(e)) {
 	e->reason = TRACE_ERROR_THROW;
 	trace_recorder_take_snapshot(recorder, REG_PC, 1);
 	Emit_Exit(recorder, e->pc);
-	// TODO emit exit
 	return 1;
     }
     return 0;
@@ -1655,6 +1656,7 @@ static VALUE *trace_selection(rb_jit_t *jit, jit_event_t *e)
     trace_t *trace = NULL;
     VALUE *target_pc = NULL;
     if (is_recording(jit)) {
+	// fprintf(stderr, "record: %s:%d, sp=%p [1]=%p, [0]=%p, [-1]=%p, [-2]=%p\n", __FILE__, __LINE__, GET_SP(), (void*)GET_SP()[1], (void*)GET_SP()[0], (void*)GET_SP()[-1], (void*)GET_SP()[-2]);
 	if (is_end_of_trace(jit->recorder, e)) {
 	    compile_trace(jit, jit->recorder);
 	    stop_recording(jit);
